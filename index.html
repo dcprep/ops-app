@@ -1540,6 +1540,7 @@ function resetDrill() {
   ['d-occupants','d-occupants-0','d-occupants-1'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
   setDrillOccupantFields();
   stopTimer('drill');
+  delete timers['drill']; // a new drill never inherits the last one's elapsed time
   if(D.elapsedIv){ clearInterval(D.elapsedIv); D.elapsedIv=null; }
   document.querySelectorAll('#screen-drill .sel-btn').forEach(b=>b.classList.remove('on'));
   document.querySelectorAll('#screen-drill .role-check').forEach(c=>c.classList.remove('on'));
