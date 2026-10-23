@@ -428,10 +428,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="flow-step active" id="dd-school">
       <div class="step-title">Which campus?</div>
       <div class="card">
-        <div class="role-row" onclick="drillPickSchool(this,'AMC')"><span class="role-name">Anacostia Middle (AMC)</span><span class="role-check" id="dsc-AMC"></span></div>
-        <div class="role-row" onclick="drillPickSchool(this,'AEC')"><span class="role-name">Anacostia Elementary (AEC)</span><span class="role-check" id="dsc-AEC"></span></div>
-        <div class="role-row" onclick="drillPickSchool(this,'BMC')"><span class="role-name">Benning Middle (BMC)</span><span class="role-check" id="dsc-BMC"></span></div>
-        <div class="role-row" onclick="drillPickSchool(this,'BEC')"><span class="role-name">Benning Elementary (BEC)</span><span class="role-check" id="dsc-BEC"></span></div>
+        <div class="role-row" onclick="drillPickSchool(this,'Anacostia')"><span class="role-name">Anacostia Cluster (AMC + AEC)</span><span class="role-check" id="dsc-Anacostia"></span></div>
+        <div class="role-row" onclick="drillPickSchool(this,'Benning')"><span class="role-name">Benning Cluster (BMC + BEC)</span><span class="role-check" id="dsc-Benning"></span></div>
         <div class="role-row" onclick="drillPickSchool(this,'EMC')"><span class="role-name">Edgewood Middle (EMC)</span><span class="role-check" id="dsc-EMC"></span></div>
         <div class="role-row" onclick="drillPickSchool(this,'EEC')"><span class="role-name">Edgewood Elementary (EEC)</span><span class="role-check" id="dsc-EEC"></span></div>
       </div>
@@ -513,7 +511,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         </div>
         <div class="card-section">
           <label class="field-label">Total occupants</label>
-          <input type="number" id="d-occupants" placeholder="e.g. 420" inputmode="numeric">
+          <div id="d-occ-single"><input type="number" id="d-occupants" placeholder="e.g. 420" inputmode="numeric"></div>
+          <div id="d-occ-cluster" class="two-col" style="display:none">
+            <div><label class="field-label" style="margin-bottom:5px" id="d-occ-lbl-0"></label><input type="number" id="d-occupants-0" placeholder="e.g. 420" inputmode="numeric"></div>
+            <div><label class="field-label" style="margin-bottom:5px" id="d-occ-lbl-1"></label><input type="number" id="d-occupants-1" placeholder="e.g. 420" inputmode="numeric"></div>
+          </div>
         </div>
       </div>
 
@@ -1512,7 +1514,12 @@ function openPreview(key) {
 // ══════════════════════════════════════════════
 // DRILL FLOW
 // ══════════════════════════════════════════════
-const D = { school:null, role:null, drillType:null, weather:null, assessment:null, step:'school', elapsedIv:null };
+const D = { school:null, schools:[], cluster:'', role:null, drillType:null, weather:null, assessment:null, step:'school', elapsedIv:null };
+// Cluster campuses: one drill line in the picker, one row per school on submit
+const DRILL_CLUSTERS = {
+  Anacostia: { label:'Anacostia Cluster', schools:['AMC','AEC'] },
+  Benning:   { label:'Benning Cluster',   schools:['BMC','BEC'] }
+};
 const W = { school:null, name:null, step:'school', currentSpace:null, spaceState:{} };
 
 
@@ -1529,7 +1536,9 @@ function openFlow(type) {
 }
 
 function resetDrill() {
-  Object.assign(D,{school:null,role:null,drillType:null,weather:null,assessment:null,step:'school'});
+  Object.assign(D,{school:null,schools:[],cluster:'',role:null,drillType:null,weather:null,assessment:null,step:'school'});
+  ['d-occupants','d-occupants-0','d-occupants-1'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  setDrillOccupantFields();
   stopTimer('drill');
   if(D.elapsedIv){ clearInterval(D.elapsedIv); D.elapsedIv=null; }
   document.querySelectorAll('#screen-drill .sel-btn').forEach(b=>b.classList.remove('on'));
@@ -1569,8 +1578,23 @@ function showDrillStep(id) {
 function drillPickSchool(row, val) {
   document.querySelectorAll('#dd-school .role-check').forEach(c=>c.classList.remove('on'));
   row.querySelector('.role-check').classList.add('on');
-  D.school = val; updateDrillCtx();
+  const c = DRILL_CLUSTERS[val];
+  D.cluster = c ? val : '';
+  D.schools = c ? c.schools.slice() : [val];
+  D.school = c ? c.label : val;
+  setDrillOccupantFields();
+  updateDrillCtx();
   setTimeout(()=>showDrillStep('type'),120);
+}
+function setDrillOccupantFields() {
+  const isCluster = D.schools.length > 1;
+  document.getElementById('d-occ-single').style.display = isCluster ? 'none' : '';
+  document.getElementById('d-occ-cluster').style.display = isCluster ? '' : 'none';
+  if (isCluster) D.schools.forEach((code,i)=>{ document.getElementById('d-occ-lbl-'+i).textContent = code; });
+}
+function drillOccupantsFor(i) {
+  const id = D.schools.length > 1 ? 'd-occupants-'+i : 'd-occupants';
+  return document.getElementById(id)?.value || '';
 }
 function drillPickType(row, val) {
   document.querySelectorAll('#dd-type .role-check').forEach(c=>{if(c.id.startsWith('dtc-'))c.classList.remove('on')});
@@ -1666,9 +1690,11 @@ function drillBack() {
 let _submitting = false;
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwPbhFWpzKX6S6seb1c0QKplVM22LjZG6bkGMBnTNopry6dDr5YGtffKKR3EsFQ77n5BQ/exec';
 
-function postToScript(payload) {
-  if (_submitting) return;
-  _submitting = true;
+function postToScript(payload, skipGuard) {
+  if (!skipGuard) {
+    if (_submitting) return false;
+    _submitting = true;
+  }
   setTimeout(function() { _submitting = false; }, 5000);
   try {
     fetch(SCRIPT_URL, {
@@ -1678,6 +1704,7 @@ function postToScript(payload) {
       body: JSON.stringify(payload)
     }).catch(function(e) {});
   } catch(e) {}
+  return true;
 }
 
 function submitDrill() {
@@ -1690,9 +1717,15 @@ function submitDrill() {
   const yesCount=document.querySelectorAll('#screen-drill .tog.yes.on').length;
   const observations = {}; document.querySelectorAll('#screen-drill .tog-row').forEach(row=>{ const lbl=row.querySelector('.tog-label')?.textContent; const on=row.querySelector('.tog.on'); if(lbl&&on) observations[lbl]=on.classList.contains('yes')?'yes':'no'; });
   _lastFlow='drill';
-  const payload = { flow:'drill', campus:D.school, role:D.role, drillType:D.drillType||'', weather:D.weather||'', alarmStart:document.getElementById('d-t-alarm')?.value||'', exitTime:document.getElementById('d-t-exit')?.value||'', allClearTime:document.getElementById('d-t-allclear')?.value||'', endTime:document.getElementById('d-t-end')?.value||'', occupants:document.getElementById('d-occupants')?.value||'', durationSecs:timerSecs('drill'), flags:flags, observations, notes:document.getElementById('d-notes')?.value||document.getElementById('d-ob-notes')?.value||'' };
-  _lastPayload = payload;
-  postToScript(payload);
+  const base = { flow:'drill', cluster:D.cluster, role:D.role, drillType:D.drillType||'', weather:D.weather||'', alarmStart:document.getElementById('d-t-alarm')?.value||'', exitTime:document.getElementById('d-t-exit')?.value||'', allClearTime:document.getElementById('d-t-allclear')?.value||'', endTime:document.getElementById('d-t-end')?.value||'', durationSecs:timerSecs('drill'), flags:flags, observations, notes:document.getElementById('d-notes')?.value||document.getElementById('d-ob-notes')?.value||'' };
+  const rows = D.schools.map((code,i)=>({ ...base, campus:code, occupants:drillOccupantsFor(i) }));
+  if (!postToScript(rows[0])) return;           // double-tap guard
+  rows.slice(1).forEach(r=>postToScript(r, true));
+  const payload = rows[0];
+  // Emailed copy covers the whole drill, not just the first school's row
+  _lastPayload = rows.length > 1
+    ? { ...base, campus:D.schools.join(', '), occupants:rows.map(r=>r.campus+': '+(r.occupants||'—')).join(', ') }
+    : payload;
   document.getElementById('s-title').textContent='Drill logged';
   document.getElementById('s-sub').textContent = D.role==='OSL' ? 'The official record is saved. Campus leaders will receive a summary.' : 'Your observations have been added to the drill record.';
   let html=`<div class="sum-row"><span class="sum-key">Campus<\/span><span class="sum-val">${D.school||'—'}<\/span><\/div>
