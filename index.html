@@ -1718,7 +1718,7 @@ function submitDrill() {
   const yesCount=document.querySelectorAll('#screen-drill .tog.yes.on').length;
   const observations = {}; document.querySelectorAll('#screen-drill .tog-row').forEach(row=>{ const lbl=row.querySelector('.tog-label')?.textContent; const on=row.querySelector('.tog.on'); if(lbl&&on) observations[lbl]=on.classList.contains('yes')?'yes':'no'; });
   _lastFlow='drill';
-  const base = { flow:'drill', cluster:D.cluster, role:D.role, drillType:D.drillType||'', weather:D.weather||'', alarmStart:document.getElementById('d-t-alarm')?.value||'', exitTime:document.getElementById('d-t-exit')?.value||'', allClearTime:document.getElementById('d-t-allclear')?.value||'', endTime:document.getElementById('d-t-end')?.value||'', durationSecs:timerSecs('drill'), flags:flags, observations, notes:document.getElementById('d-notes')?.value||document.getElementById('d-ob-notes')?.value||'' };
+  const base = { flow:'drill', cluster:D.cluster, role:D.role, assessment:D.assessment||'', drillType:D.drillType||'', weather:D.weather||'', alarmStart:document.getElementById('d-t-alarm')?.value||'', exitTime:document.getElementById('d-t-exit')?.value||'', allClearTime:document.getElementById('d-t-allclear')?.value||'', endTime:document.getElementById('d-t-end')?.value||'', durationSecs:timerSecs('drill'), flags:flags, observations, notes:document.getElementById('d-notes')?.value||document.getElementById('d-ob-notes')?.value||'' };
   const rows = D.schools.map((code,i)=>({ ...base, campus:code, occupants:drillOccupantsFor(i) }));
   if (!postToScript(rows[0])) return;           // double-tap guard
   rows.slice(1).forEach(r=>postToScript(r, true));
