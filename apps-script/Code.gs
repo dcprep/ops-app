@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════════════════════
-// DC Prep Ops App — Google Apps Script (corrected, Oct 2026)
+// DC Prep Ops App — Google Apps Script (corrected, Oct 2026; web app added Oct 24)
 //
 // CHANGES IN THIS VERSION — read before pasting over the old script:
 //
@@ -234,6 +234,19 @@
 //     handleDrill also now writes the observer's overall rating
 //     (`assessment`, Strong / OK / Needs work) to new column AB
 //     ("Observer Assessment"), added automatically if missing.
+//
+// 20. ADDED (Oct 2026) — DC Prep-only web app (security roadmap, Phase 1).
+//     The app page itself is now served from this script, so it can be
+//     restricted to people signed in with a DC Prep Google account.
+//       - doGet with no ?view= returns the app page (the "Index" HTML
+//         file in this project) instead of the old status message.
+//       - The page talks to this script through google.script.run, using
+//         two new functions: submit(payload) to save, getView(name,
+//         params) to load. Both reuse exactly the same handlers as the
+//         old doPost / ?view= routes, via routeFlow() and readView().
+//       - doPost and the ?view= JSON routes are unchanged and stay in
+//         place until cutover, so the current GitHub-hosted app and
+//         dashboards keep working. They're removed in Phase 4.
 var MIN_CUSTODIAL_N = 3;
 
 // Spreadsheet tabs expected in the App Log:
@@ -317,25 +330,54 @@ var DRILL_GROUPS = [
 
 // ── Entry points ──────────────────────────────────────────────────────
 
+// Routes one submission to its handler. Shared by doPost (old app) and
+// submit() (new app) so the two can never disagree.
+function routeFlow(payload) {
+  var flow = payload.flow || '';
+
+  if      (flow === 'drill')          handleDrill(payload);
+  else if (flow === 'walkthrough')    handleWalkthrough(payload);
+  else if (flow === 'arrival')        handleArrival(payload);
+  else if (flow === 'custodial')      handleCustodial(payload);
+  else if (flow === 'readiness')      handleReadiness(payload);   // legacy standalone MDS flow (likely unused)
+  else if (flow === 'boy-readiness')  handleBOYReadiness(payload);
+  else if (flow === 'bus-trip')       handleBusTrip(payload);
+  else if (flow === 'bus-handoff')    handleBusHandoff(payload);
+  else if (flow === 'bus-delay')      handleBusDelay(payload);
+  else if (flow === 'bus-liaison')    handleBusLiaison(payload);
+  else if (flow === 'daily-win')      handleDailyWin(payload);
+  else if (flow === 'bingo')          handleBingo(payload);
+
+  return flow;
+}
+
+// Returns the data for one ?view= name. Shared by doGet (old app and
+// dashboards) and getView() (new app) so the two can never disagree.
+// Returns null for an unknown view.
+function readView(view, params) {
+  params = params || {};
+  if (view === 'ops')              return getOpsData();
+  if (view === 'transport')        return getTransportData();
+  if (view === 'boy')              return getBOYReadiness(params.campus || 'BEC');
+  if (view === 'readinessHistory') return getReadinessHistory();
+  if (view === 'dailySnapshots')   return getDailySnapshots();
+  if (view === 'dailyWins')        return getDailyWins();
+  // ADDED (Aug 2026) — single consolidated payload for the Overall tab.
+  // See getOverallReadinessData()'s own header comment for why this
+  // exists and how it's cached.
+  if (view === 'overall')          return getOverallReadinessData();
+  // ADDED (Aug 2026) — Ops AI Bingo "everyone's cards" overview.
+  if (view === 'bingo')            return getBingoData();
+  return null;
+}
+
+// ── Old app (GitHub Pages) — unchanged behavior until Phase 4 ──────────
+
 function doPost(e) {
   try {
     var raw     = e.postData ? e.postData.contents : '{}';
     var payload = JSON.parse(raw);
-    var flow    = payload.flow || '';
-
-    if      (flow === 'drill')          handleDrill(payload);
-    else if (flow === 'walkthrough')    handleWalkthrough(payload);
-    else if (flow === 'arrival')        handleArrival(payload);
-    else if (flow === 'custodial')      handleCustodial(payload);
-    else if (flow === 'readiness')      handleReadiness(payload);   // legacy standalone MDS flow (likely unused)
-    else if (flow === 'boy-readiness')  handleBOYReadiness(payload);
-    else if (flow === 'bus-trip')       handleBusTrip(payload);
-    else if (flow === 'bus-handoff')    handleBusHandoff(payload);
-    else if (flow === 'bus-delay')      handleBusDelay(payload);
-    else if (flow === 'bus-liaison')    handleBusLiaison(payload);
-    else if (flow === 'daily-win')      handleDailyWin(payload);
-    else if (flow === 'bingo')          handleBingo(payload);
-
+    var flow    = routeFlow(payload);
     return jsonOK({ status: 'ok', flow: flow });
   } catch (err) {
     return jsonOK({ status: 'error', message: err.toString() });
@@ -344,24 +386,14 @@ function doPost(e) {
 
 function doGet(e) {
   try {
-    var view = e.parameter.view || '';
+    var params = (e && e.parameter) || {};
+    var view   = params.view || '';
 
-    if (view === 'ops')       return jsonOK(getOpsData());
-    if (view === 'transport') return jsonOK(getTransportData());
-    if (view === 'boy') {
-      var campus = e.parameter.campus || 'BEC';
-      return jsonOK(getBOYReadiness(campus));
-    }
-    if (view === 'readinessHistory') return jsonOK(getReadinessHistory());
-    if (view === 'dailySnapshots')   return jsonOK(getDailySnapshots());
-    if (view === 'dailyWins')        return jsonOK(getDailyWins());
-    // ADDED (Aug 2026) — single consolidated payload for the Overall tab.
-    // See getOverallReadinessData()'s own header comment for why this
-    // exists and how it's cached.
-    if (view === 'overall')          return jsonOK(getOverallReadinessData());
-    // ADDED (Aug 2026) — Ops AI Bingo "everyone's cards" overview.
-    if (view === 'bingo')            return jsonOK(getBingoData());
+    // No ?view= → serve the app page itself (new, DC Prep-only app).
+    if (!view) return serveApp();
 
+    var data = readView(view, params);
+    if (data !== null) return jsonOK(data);
     return jsonOK({ status: 'ok', message: 'DC Prep Ops Script' });
   } catch (err) {
     return jsonOK({ status: 'error', message: err.toString() });
@@ -372,6 +404,33 @@ function jsonOK(obj) {
   return ContentService
     .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ── New app (served from this script) ─────────────────────────────────
+
+// Serves the "Index" HTML file as the app page.
+function serveApp() {
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('DCP Ops App')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+}
+
+// Called from the page as google.script.run.submit(payload).
+// Unlike doPost, errors are NOT swallowed: they reach the page's failure
+// handler, so staff see a "didn't save" message instead of a false
+// "Logged". An unknown flow is still ignored, same as doPost.
+function submit(payload) {
+  var flow = routeFlow(payload || {});
+  return { status: 'ok', flow: flow };
+}
+
+// Called from the page as google.script.run.getView(name, params).
+// Returns a JSON string (the page parses it), because google.script.run
+// can't send Date objects back to the page — a string sidesteps that and
+// keeps the data identical to what the ?view= URLs return.
+function getView(view, params) {
+  var data = readView(view, params);
+  return JSON.stringify(data === null ? { status: 'error', message: 'Unknown view: ' + view } : data);
 }
 
 
